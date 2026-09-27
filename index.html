@@ -372,6 +372,7 @@
         <a href="#charges">Charges</a><a href="#about">About</a><a href="#contact">Contact</a>
       </div>
       <div class="nav-actions">
+        <button class="btn btn-light btn-small admin-top-btn" id="adminOpenTop" type="button">Admin Login</button>
         <a class="btn btn-primary btn-small" href="#home-visit">Book a Home Visit <span aria-hidden="true">↗</span></a>
         <button class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
@@ -980,6 +981,7 @@
       }
       $("#adminOpen").addEventListener("click",openAdmin);
       $("#adminOpenBottom").addEventListener("click",openAdmin);
+      $("#adminOpenTop").addEventListener("click",openAdmin);
       $("#adminLoginBtn").addEventListener("click", () => {
         if ($("#adminPass").value !== "2468") { showToast("Incorrect demo passcode."); return; }
         $("#adminLogin").hidden = true; $("#adminDashboard").hidden = false;
