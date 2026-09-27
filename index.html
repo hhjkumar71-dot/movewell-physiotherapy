@@ -511,14 +511,14 @@
                 <option value="general">General Physiotherapy Session</option><option value="assessment">Physiotherapy Assessment</option><option value="specialist">Focused / Specialist Session</option>
               </select></div>
               <div class="field"><label for="visitDate">Preferred date *</label><input id="visitDate" name="visitDate" type="date" required></div>
-              <div class="field"><label for="visitTime">Preferred time *</label><select id="visitTime" name="visitTime" required><option value="">Choose a date first</option></select></div>
             </div>
 
             <div class="form-section-title"><span>3</span> Visit location</div>
             <div class="form-grid">
-              <div class="field full"><label for="address">Address / location details <span class="opt">(optional)</span></label><textarea id="address" name="address" autocomplete="street-address" placeholder="House / flat number, street, area"></textarea></div>
+              <div class="field full"><label for="address">Address / location details *</label><textarea id="address" name="address" autocomplete="street-address" required placeholder="House / flat number, street, area"></textarea></div>
               <div class="field full">
                 <div class="location-actions">
+                  <button class="btn btn-outline btn-small" type="button" id="mapSearchBtn">🔎 Find on map</button>
                   <button class="btn btn-outline btn-small" type="button" id="locateBtn">📍 Use current location</button>
                 </div>
                 <span class="location-hint" id="locationStatus">Select your visit location directly on the map. Location is required.</span>
@@ -768,42 +768,19 @@
       pricing = { ...DEFAULTS, ...safeRead(KEYS.pricing, {}) };
       calculateEstimate();
 
-      const timeSelect = $("#visitTime");
-      const daySlots = ["09:00","10:30","12:00","14:00","15:30","17:00"];
-      function updateSlots() {
-        const value = $("#visitDate").value;
-        timeSelect.innerHTML = "";
-        if (!value) { timeSelect.innerHTML = '<option value="">Choose a date first</option>'; return; }
-        const date = new Date(value + "T12:00:00");
-        if (date.getDay() === 0) {
-          timeSelect.innerHTML = '<option value="">No visits on Sundays</option>';
-          return;
-        }
-        const today = new Date(); today.setHours(0,0,0,0);
-        const isToday = date.toDateString() === today.toDateString();
-        const current = new Date();
-        const available = daySlots.filter(slot => {
-          if (!isToday) return true;
-          const [h,m] = slot.split(":").map(Number);
-          return h * 60 + m > current.getHours() * 60 + current.getMinutes() + 90;
-        });
-        if (!available.length) { timeSelect.innerHTML = '<option value="">No remaining times today</option>'; return; }
-        timeSelect.innerHTML = '<option value="">Select a preferred time</option>' + available.map(t => {
-          const [h,m] = t.split(":").map(Number); const label = `${(h%12)||12}:${String(m).padStart(2,"0")} ${h>=12?"PM":"AM"}`;
-          return `<option value="${t}">${label}</option>`;
-        }).join("");
-      }
-      $("#visitDate").addEventListener("change", updateSlots);
-
       const BASE_ZONE = { lat: 12.9716, lng: 77.5946 }; // Public central service-zone reference, not a home address.
       function initMap() {
-        if (!window.L || map) return;
+        if (!window.L) {
+          $("#locationStatus").textContent = "Map could not load. Enter your address and use Find on map.";
+          return;
+        }
+        if (map) { setTimeout(() => map.invalidateSize(), 100); return; }
         map = L.map("map", { scrollWheelZoom: false }).setView([BASE_ZONE.lat, BASE_ZONE.lng], 11);
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
         }).addTo(map);
-        map.on("click", e => setLocation(e.latlng.lat, e.latlng.lng, "Pin selected. Estimate distance to your visit location."));
-        setTimeout(() => map.invalidateSize(), 250);
+        map.on("click", e => setLocation(e.latlng.lat, e.latlng.lng, "Location selected. Move the pin if needed."));
+        setTimeout(() => map.invalidateSize(), 300);
       }
       function setLocation(lat, lng, statusText) {
         selectedCoords = { lat:Number(lat), lng:Number(lng) };
@@ -842,6 +819,24 @@
         }
         calculateEstimate();
       }
+      $("#mapSearchBtn").addEventListener("click", async () => {
+        const address = $("#address").value.trim();
+        if (!address) { showToast("Enter the patient address first."); $("#address").focus(); return; }
+        const button = $("#mapSearchBtn"); button.disabled = true; button.textContent = "Finding…";
+        $("#locationStatus").textContent = "Finding this address on the map…";
+        try {
+          const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q=" + encodeURIComponent(address);
+          const response = await fetch(url, { headers: { "Accept-Language":"en" }, signal: AbortSignal.timeout(10000) });
+          if (!response.ok) throw new Error("Search unavailable");
+          const data = await response.json();
+          if (!data.length) throw new Error("Location not found");
+          setLocation(Number(data[0].lat), Number(data[0].lon), "Location found. Please check the map pin.");
+        } catch {
+          showToast("Location not found. Tap the map to select the visit location.");
+          $("#locationStatus").textContent = "Tap the map to select the visit location.";
+        } finally { button.disabled = false; button.textContent = "🔎 Find on map"; }
+      });
+
       $("#locateBtn").addEventListener("click", () => {
         if (!navigator.geolocation) { showToast("Location is not available in this browser."); return; }
         $("#locationStatus").textContent = "Waiting for location permission…";
@@ -877,7 +872,11 @@
         if ($("#visitDate").value && new Date($("#visitDate").value + "T12:00:00").getDay() === 0) {
           showToast("Please select a Monday–Saturday date."); return;
         }
-        if (!selectedCoords) { showToast("Please select the patient's visit location on the map."); return; }
+        if (!selectedCoords) {
+          showToast("Please select the visit location on the map or use Find on map.");
+          $("#map").scrollIntoView({behavior:"smooth", block:"center"});
+          return;
+        }
         if (!paymentConfirmed || !$("#paymentConfirmed").checked) { showToast("Please pay the minimum ₹100 advance and confirm payment."); return; }
         const cost = calculateEstimate(), data = getBookingData();
         const request = {
@@ -888,7 +887,7 @@
           problem: data.problem,
           service: $("#service").selectedOptions[0].textContent,
           date: data.visitDate,
-          time: $("#visitTime").selectedOptions[0]?.textContent || data.visitTime,
+          time: "To be confirmed by admin",
           address: data.address.trim(),
           location: selectedCoords,
           advanceRequired: Number(pricing.advance || 100),
@@ -900,13 +899,13 @@
         if (!saveJson(KEYS.requests, list)) return;
         $("#confirmationSummary").innerHTML = [
           ["Request reference", request.id],["Patient", request.patient],
-          ["Concern", request.problem],["Preferred visit", `${request.date} · ${request.time}`],
+          ["Concern", request.problem],["Preferred date", request.date], ["Time", "To be confirmed by admin"],
           ["Location", "Map location selected"],["Advance paid", currency(request.advanceRequired)],["Estimated charge", currency(request.estimate)]
         ].map(([label,value]) => `<div class="summary-item"><small>${escapeHtml(label)}</small><b>${escapeHtml(String(value))}</b></div>`).join("");
-        const whatsappText = `Hello MoveWell, I submitted a home physiotherapy visit request (${request.id}). Patient: ${request.patient}. Preferred visit: ${request.date}, ${request.time}. Please contact me to confirm availability and final charges.`;
+        const whatsappText = `Hello MoveWell, I submitted a home physiotherapy visit request (${request.id}). Patient: ${request.patient}. Preferred date: ${request.date}. Time to be confirmed by admin. Please contact me to confirm availability and final charges.`;
         $("#confirmWhatsApp").href = "https://wa.me/917310720716?text=" + encodeURIComponent(whatsappText);
         openModal("confirmationModal");
-        form.reset(); paymentConfirmed = false; $("#advanceAmount").textContent = currency(pricing.advance || 100); setMinDate(); updateSlots(); selectedCoords = null; distanceKm = null;
+        form.reset(); paymentConfirmed = false; $("#advanceAmount").textContent = currency(pricing.advance || 100); setMinDate(); selectedCoords = null; distanceKm = null;
         if (marker && map) { marker.remove(); marker = null; map.setView([BASE_ZONE.lat,BASE_ZONE.lng],11); }
         $("#locationStatus").textContent = "Location is used to estimate travel distance; precise location is not shown publicly.";
         calculateEstimate();
